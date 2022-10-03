@@ -9,8 +9,8 @@ pub use types::*;
 use defmt::Format;
 #[cfg(feature = "defmt")]
 use defmt::{info, write};
+use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 use embedded_hal_async::delay::DelayUs;
-use embedded_hal_async::i2c::{self};
 
 #[repr(u8)]
 enum Register {
@@ -32,9 +32,20 @@ enum Register {
     NONE,
 }
 
+pub struct Measurement {
+    pub lux: u16,
+}
+
 pub struct Identifier {
-    mfc_id: u8,
-    part_id: u8,
+    pub mfc_id: u8,
+    pub part_id: u8,
+}
+
+#[cfg(feature = "defmt")]
+impl Format for Measurement {
+    fn format(&self, fmt: defmt::Formatter) {
+        write!(fmt, "Lux: {}", self.lux);
+    }
 }
 
 #[cfg(feature = "defmt")]
@@ -68,47 +79,45 @@ impl<E> Format for LTR303Error<E> {
 const ADDRESS: u8 = 0x29;
 
 #[derive(Debug, Default)]
-pub struct Ltr303<I2C>
-where
-    I2C: i2c::I2c,
-{
+pub struct Ltr303<I2C> {
     i2c: I2C,
 }
 
 impl<I2C, E> Ltr303<I2C>
 where
-    I2C: i2c::I2c<Error = E>,
+    I2C: Write<Error = E> + Read<Error = E> + WriteRead<Error = E>,
 {
     pub fn new(i2c: I2C) -> Self {
         Self { i2c }
     }
 
     /// Reads data from a register.
-    async fn read_register(&mut self, reg_address: Register) -> Result<u8, LTR303Error<E>> {
+    fn read_register(&mut self, reg_address: Register) -> Result<u8, LTR303Error<E>> {
         let mut buf: [u8; 1] = [0; 1];
         self.i2c
             .write_read(ADDRESS, &[reg_address as u8], &mut buf)
-            .await
             .map_err(LTR303Error::I2c)
             .and(Ok(buf[0]))
     }
 
     /// Writes the given byte in the given register.
-    async fn write_register(
+    fn write_register(
         &mut self,
         reg_address: Register,
         reg_value: u8,
     ) -> Result<(), LTR303Error<E>> {
         self.i2c
             .write(ADDRESS, &[reg_address as u8, reg_value])
-            .await
             .map_err(LTR303Error::I2c)
     }
 
-    pub async fn measure(&mut self, delay: &mut impl DelayUs) -> Result<u16, LTR303Error<E>> {
+    pub async fn sample(
+        &mut self,
+        delay: &mut impl DelayUs,
+    ) -> Result<Measurement, LTR303Error<E>> {
         // Start measurement. Default values.
         let command: u8 = 0b000000001;
-        self.write_register(Register::ALS_CONTR, command).await?;
+        self.write_register(Register::ALS_CONTR, command)?;
 
         delay
             .delay_ms(100)
@@ -117,7 +126,7 @@ where
 
         // Wait for data to be ready.
         loop {
-            let status = self.read_register(Register::ALS_STATUS).await?;
+            let status = self.read_register(Register::ALS_STATUS)?;
             // info!("Read status register: {}", status);
             if status & 0x04 != 0 {
                 break;
@@ -128,29 +137,33 @@ where
                 .map_err(|_| LTR303Error::TimingError)?;
         }
 
-        let ch1_0 = self.read_register(Register::ALS_DATA_CH1_LOW).await? as u16;
-        let ch1_1 = self.read_register(Register::ALS_DATA_CH1_HIGH).await? as u16;
-        let ch0_0 = self.read_register(Register::ALS_DATA_CH0_LOW).await? as u16;
-        let ch0_1 = self.read_register(Register::ALS_DATA_CH0_HIGH).await? as u16;
+        let ch1_0 = self.read_register(Register::ALS_DATA_CH1_LOW)? as u16;
+        let ch1_1 = self.read_register(Register::ALS_DATA_CH1_HIGH)? as u16;
+        let ch0_0 = self.read_register(Register::ALS_DATA_CH0_LOW)? as u16;
+        let ch0_1 = self.read_register(Register::ALS_DATA_CH0_HIGH)? as u16;
         // Go to sleep.
         let command: u8 = 0b000000000;
-        self.write_register(Register::ALS_CONTR, command).await?;
+        self.write_register(Register::ALS_CONTR, command)?;
 
         let ch0 = (ch0_1 << 8) + ch0_0;
         let ch1 = (ch1_1 << 8) + ch1_0;
 
-        info!("Ch0: {} Ch1: {}", ch0, ch1);
+        // Go to sleep
+        let command: u8 = 0b000000000;
+        self.write_register(Register::ALS_CONTR, command)?;
 
-        Ok(raw_to_lux(ch0, ch1))
+        Ok(Measurement {
+            lux: raw_to_lux(ch0, ch1),
+        })
     }
 
     pub async fn sleep(&mut self) {}
-    pub async fn wakeup(&mut self) {}
+    pub async fn wakeup(&mut self, delay: &mut impl DelayUs) {}
 
     /// Gets the manufacturer ID and part ID. These should be 0x05 and 0xA0.
     pub async fn get_identifier(&mut self) -> Result<Identifier, LTR303Error<E>> {
-        let mfc_id = self.read_register(Register::MANUFAC_ID).await?;
-        let part_id = self.read_register(Register::PART_ID).await?;
+        let mfc_id = self.read_register(Register::MANUFAC_ID)?;
+        let part_id = self.read_register(Register::PART_ID)?;
 
         Ok(Identifier { mfc_id, part_id })
     }
