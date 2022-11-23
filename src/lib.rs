@@ -8,14 +8,15 @@ pub use types::*;
 #[cfg(feature = "defmt")]
 use defmt::Format;
 #[cfg(feature = "defmt")]
-use defmt::{info, write};
+use defmt::{ write};
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 use embedded_hal_async::delay::DelayUs;
 
 #[repr(u8)]
+#[allow(non_camel_case_types)]
 enum Register {
     ALS_CONTR = 0x80,
-    ALS_MEAS_RATE = 0x85,
+    // ALS_MEAS_RATE = 0x85,
     PART_ID = 0x86,
     MANUFAC_ID = 0x87,
     ALS_DATA_CH1_LOW = 0x88,
@@ -23,16 +24,16 @@ enum Register {
     ALS_DATA_CH0_LOW = 0x8A,
     ALS_DATA_CH0_HIGH = 0x8B,
     ALS_STATUS = 0x8C,
-    INTERRUPT = 0x8F,
-    ALS_THRES_UP_0 = 0x97,
-    ALS_THRES_UP_1 = 0x98,
-    ALS_THRES_LOW_0 = 0x99,
-    ALS_THRES_LOW_1 = 0x9A,
-    INTERRUPT_PERSIST = 0x9E,
-    NONE,
+    // INTERRUPT = 0x8F,
+    // ALS_THRES_UP_0 = 0x97,
+    // ALS_THRES_UP_1 = 0x98,
+    // ALS_THRES_LOW_0 = 0x99,
+    // ALS_THRES_LOW_1 = 0x9A,
+    // INTERRUPT_PERSIST = 0x9E,
+    // NONE,
 }
 
-pub struct Measurement {
+pub struct LTR303Result {
     pub lux: u16,
 }
 
@@ -42,7 +43,7 @@ pub struct Identifier {
 }
 
 #[cfg(feature = "defmt")]
-impl Format for Measurement {
+impl Format for LTR303Result {
     fn format(&self, fmt: defmt::Formatter) {
         write!(fmt, "Lux: {}", self.lux);
     }
@@ -114,7 +115,7 @@ where
     pub async fn sample(
         &mut self,
         delay: &mut impl DelayUs,
-    ) -> Result<Measurement, LTR303Error<E>> {
+    ) -> Result<LTR303Result, LTR303Error<E>> {
         // Start measurement. Default values.
         let command: u8 = 0b000000001;
         self.write_register(Register::ALS_CONTR, command)?;
@@ -152,13 +153,13 @@ where
         let command: u8 = 0b000000000;
         self.write_register(Register::ALS_CONTR, command)?;
 
-        Ok(Measurement {
+        Ok(LTR303Result {
             lux: raw_to_lux(ch0, ch1),
         })
     }
 
-    pub async fn sleep(&mut self) {}
-    pub async fn wakeup(&mut self, delay: &mut impl DelayUs) {}
+    // pub async fn sleep(&mut self) {}
+    // pub async fn wakeup(&mut self, delay: &mut impl DelayUs) {}
 
     /// Gets the manufacturer ID and part ID. These should be 0x05 and 0xA0.
     pub async fn get_identifier(&mut self) -> Result<Identifier, LTR303Error<E>> {
