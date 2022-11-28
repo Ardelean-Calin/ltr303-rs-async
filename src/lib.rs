@@ -42,6 +42,12 @@ pub struct Identifier {
     pub part_id: u8,
 }
 
+impl Default for LTR303Result {
+    fn default() -> Self {
+        Self { lux: Default::default() }
+    }
+}
+
 #[cfg(feature = "defmt")]
 impl Format for LTR303Result {
     fn format(&self, fmt: defmt::Formatter) {
