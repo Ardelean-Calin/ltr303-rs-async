@@ -33,6 +33,7 @@ enum Register {
     // NONE,
 }
 
+#[derive(Clone, Debug)]
 pub struct LTR303Result {
     pub lux: u16,
 }
